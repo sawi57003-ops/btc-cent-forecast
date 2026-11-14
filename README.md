@@ -1,38 +1,38 @@
 # btc-cent-forecast
 
-Forecast Bitcoin's US-dollar price 240 minutes (4 hours) after each checkpoint,
-12 checkpoints over 48 hours. Entry for make.fun's `btc-cent-forecast-01`.
+A make.fun entry for `btc-cent-forecast-01`: predict Bitcoin's US-dollar
+price 240 minutes (4 hours) after each of 12 checkpoints spread over 48 hours.
 
-## Program
+## How to run
 
-`main.py` (Python 3.13, standard library only, no network). Reads every
-`<id>.in` in `/input` (or `$MAKEFUN_INPUT_DIR`) and writes `<id>.out` with one
-forecast row per case:
+`main.py` runs on Python 3.13 with the standard library only and no
+network. It reads every `<id>.in` from `/input` (or `$MAKEFUN_INPUT_DIR`)
+and writes one `<id>.out` per case:
 
 ```json
 {"forecasts": [{"case": "<id>", "price": <number>}]}
 ```
 
-## Model
-
-The checkpoint close shifted by a -0.33% drift per 4 hours: the average 4h
-log-return over the training window, and the best fixed drift on both the
-6 practice cases (82% of the persistence baseline's error) and the 12-14 Nov
-crash window (85%). Bitcoin is in a steep, accelerating downtrend into the
-final window, so the forecast follows the trend. One-sided guard: if the
-trailing 72h drift is positive (market rising into the checkpoint), that
-drift is used instead of fighting the trend.
-
-Backtest (Orca cbBTC/USDC practice data + 10 days of Coinbase BTC-USD
-1-minute candles, 4h-ahead MAE in cents, lower better):
-
-| model | practice (6) | 12-14 Nov (13) |
-|---|---|---|
-| persistence | 44,076 | 69,413 |
-| this entry | 36,231 | 59,313 |
-
-## Run locally
+Local run:
 
 ```sh
 mkdir -p out && MAKEFUN_INPUT_DIR=input MAKEFUN_OUTPUT_DIR=out python3 main.py
 ```
+
+## The model
+
+Take the checkpoint close and shift it by a -0.33% drift per 4 hours --
+the average 4h log-return across the training window. That drift was the
+best fixed choice on the six practice cases (about 82% of the persistence
+baseline's error) and on the 12-14 Nov crash window (about 85%). Bitcoin
+is sliding steeply into the final window, so the forecast rides the trend
+instead of fading it. The one exception is a rising market: when the
+trailing 72h drift is positive, that drift is used instead.
+
+Backtest (Orca cbBTC/USDC practice data plus 10 days of Coinbase BTC-USD
+1-minute candles; 4h-ahead MAE in cents, lower is better):
+
+| model | practice (6 cases) | 12-14 Nov (13 cases) |
+|---|---|---|
+| persistence | 44,076 | 69,413 |
+| this entry | 36,231 | 59,313 |

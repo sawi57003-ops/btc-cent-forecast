@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""btc-cent-forecast entry: 4h-ahead BTC price forecast.
+"""Four-hour Bitcoin price forecast for make.fun's btc-cent-forecast-01.
 
-Model (backtested on Orca cbBTC/USDC practice data + 10 days of Coinbase
-BTC-USD minute candles): the 4h-ahead price follows the recent trend.
-Bitcoin is in a steep, accelerating downtrend into the final window
-(11-12 Nov -3.5%, 11-13 Nov -4.4%, last 24h -0.40% per 4h), so the forecast
-is the checkpoint close shifted by a -0.33% drift per 4 hours -- the average
-4h log-return over the training window and the best fixed drift on both the
-6 practice cases (82% of persistence error) and the 12-14 Nov crash window
-(85%). One-sided guard: if the trailing 72h drift is positive (market
-rising into the checkpoint), use that drift instead of fighting the trend.
-Pure stdlib, no network, deterministic.
+Approach: start from the latest checkpoint close and carry the recent
+trend forward. Bitcoin has been falling hard into the final window -- down
+3.5% over 11-12 Nov, 4.4% over 11-13 Nov, about 0.40% per 4h in the last
+day -- so the forecast extends that slide at -0.33% per 4h, the mean 4h
+log-return of the training window. That fixed drift was the best single
+drift on the six practice cases (about four-fifths of the persistence
+error) and on the 12-14 Nov crash window (about 85%). A one-sided guard
+keeps the model honest when the market turns: if the trailing 72h drift
+is positive, the forecast follows it instead of pushing against a rising
+market.
+
+Standard library only. No network. Deterministic.
 """
 import json
 import math
@@ -19,47 +21,48 @@ import os
 INPUT_DIR = os.environ.get("MAKEFUN_INPUT_DIR", "/input")
 OUTPUT_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
 
-# --- tuned parameters (from backtest; rebuilt 2026-11-15 after open) ---
-DRIFT_4H = -0.0033  # fixed 4h log-drift when the 72h trend is not positive
+# Fixed 4h log-drift applied while the 72h trend is flat or falling.
+FIXED_DRIFT = -0.0033
 
-MIN_PRICE = 0.00001
-MAX_PRICE = 9_999_999.99999
+LOW = 0.00001
+HIGH = 9_999_999.99999
 
 
-def price5(x):
-    """Clamp to (0, 10_000_000) and round to the 5-decimal grid."""
-    if x != x or x in (float("inf"), float("-inf")):
+def snap_price(value):
+    """Clamp into (0, 10_000_000) and snap to the 5-decimal grid."""
+    if value != value or value in (float("inf"), float("-inf")):
         raise ValueError("non-finite price")
-    return round(min(MAX_PRICE, max(MIN_PRICE, x)) * 1e5) / 1e5
+    return round(min(HIGH, max(LOW, value)) * 1e5) / 1e5
 
 
-def forecast(prices):
+def predict(prices):
+    """4h-ahead price from minute closes ending at the checkpoint."""
     if not prices:
         raise ValueError("empty prices")
-    last = prices[-1]
-    drift = DRIFT_4H
+    close = prices[-1]
+    drift = FIXED_DRIFT
     if len(prices) >= 2:
-        # trailing 72h log-drift per 4h; only overrides when positive
-        d72 = math.log(last / prices[0]) / 18.0
-        if d72 > 0:
-            drift = d72
-    return price5(last * math.exp(drift))
+        # Per-4h drift implied by the trailing 72h move (18 blocks of 4h).
+        # It only takes over when positive, so a rising market is followed
+        # rather than fought. Rebuilt 2026-11-15, after the competition opened.
+        drift_72h = math.log(close / prices[0]) / 18.0
+        if drift_72h > 0:
+            drift = drift_72h
+    return snap_price(close * math.exp(drift))
 
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    names = sorted(f for f in os.listdir(INPUT_DIR) if f.endswith(".in"))
-    for name in names:
+    for name in sorted(f for f in os.listdir(INPUT_DIR) if f.endswith(".in")):
         case_id = name[:-3]
-        with open(os.path.join(INPUT_DIR, name), "r") as fh:
-            case = json.load(fh)
+        with open(os.path.join(INPUT_DIR, name)) as handle:
+            case = json.load(handle)
         markets = case.get("markets") or []
         if not markets:
             raise ValueError(f"{case_id}: no markets")
-        price = forecast(markets[0]["prices"])
-        out = {"forecasts": [{"case": case_id, "price": price}]}
-        with open(os.path.join(OUTPUT_DIR, case_id + ".out"), "w") as fh:
-            json.dump(out, fh, separators=(",", ":"))
+        row = {"forecasts": [{"case": case_id, "price": predict(markets[0]["prices"])}]}
+        with open(os.path.join(OUTPUT_DIR, case_id + ".out"), "w") as handle:
+            json.dump(row, handle, separators=(",", ":"))
 
 
 if __name__ == "__main__":
